@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Loader } from 'lucide-react';
-import { RekognitionClient, DetectLabelsCommand } from "@aws-sdk/client-rekognition";
+// ❌ REMOVED: AWS SDK imports - now handled by API
 
 // Import data
 import { RECIPES, COMMON_INGREDIENTS, DIETARY_OPTIONS } from './data/recipes';
@@ -21,14 +21,7 @@ import Footer from './components/Footer';
 
 
 export default function SmartRecipeGenerator() {
-  // Initialize AWS Rekognition client
-  const rekognitionClient = new RekognitionClient({
-    region: import.meta.env.VITE_AWS_REGION || "us-east-1",
-    credentials: {
-      accessKeyId: import.meta.env.VITE_AWS_ACCESS_KEY_ID,
-      secretAccessKey: import.meta.env.VITE_AWS_SECRET_ACCESS_KEY,
-    },
-  });
+  // ❌ REMOVED: AWS client initialization - moved to API
 
   // State management
   const [selectedIngredients, setSelectedIngredients] = useState([]);
@@ -62,7 +55,7 @@ export default function SmartRecipeGenerator() {
     filterRecipes();
   }, [selectedIngredients, dietaryPrefs, difficultyFilter, maxCookTime, servingsFilter]);
 
-  // Image upload handler with AWS Rekognition
+  // ✅ NEW: Image upload handler that calls the serverless API
   const handleImageUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -82,66 +75,57 @@ export default function SmartRecipeGenerator() {
 
     try {
       const reader = new FileReader();
-      reader.readAsArrayBuffer(file);
       
       reader.onload = async () => {
         try {
-          const imageBytes = new Uint8Array(reader.result);
+          // Extract base64 data (remove data:image/xxx;base64, prefix)
+          const base64Data = reader.result.split(',')[1];
           
-          const command = new DetectLabelsCommand({
-            Image: { Bytes: imageBytes },
-            MaxLabels: 20,
-            MinConfidence: 70
+          console.log('Calling API with image data...');
+          
+          // Call the serverless API endpoint
+          const response = await fetch('/api/analyze-image', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ imageBase64: base64Data }),
           });
 
-          const data = await rekognitionClient.send(command);
-          
-          const ingredientMap = {
-            'tomato': 'tomato', 'onion': 'onion', 'garlic': 'garlic',
-            'potato': 'potato', 'carrot': 'carrot', 'broccoli': 'broccoli',
-            'lettuce': 'lettuce', 'spinach': 'spinach', 'chicken': 'chicken',
-            'beef': 'beef', 'pork': 'pork', 'fish': 'salmon',
-            'salmon': 'salmon', 'shrimp': 'shrimp', 'egg': 'egg',
-            'cheese': 'cheese', 'bread': 'bread', 'rice': 'rice',
-            'pasta': 'pasta', 'mushroom': 'mushroom', 'pepper': 'bell pepper',
-            'cucumber': 'cucumber', 'avocado': 'avocado', 'lemon': 'lemon',
-            'corn': 'corn', 'bean': 'black beans', 'pea': 'peas',
-            'basil': 'basil', 'ginger': 'ginger', 'butter': 'butter'
-          };
+          console.log('API response status:', response.status);
 
-          const labels = data.Labels || [];
-          const detectedIngredients = [];
-          
-          labels.forEach(label => {
-            const labelName = label.Name.toLowerCase();
-            const confidence = label.Confidence;
-            
-            for (const [key, value] of Object.entries(ingredientMap)) {
-              if (labelName.includes(key) && confidence > 70) {
-                if (!detectedIngredients.includes(value)) {
-                  detectedIngredients.push(value);
-                }
-                break;
-              }
-            }
-          });
+          // Check if response has content
+          const contentType = response.headers.get("content-type");
+          if (!contentType || !contentType.includes("application/json")) {
+            const text = await response.text();
+            console.error("Non-JSON response:", text);
+            throw new Error("Server returned invalid response. Check Vercel logs.");
+          }
 
-          if (detectedIngredients.length === 0) {
-            setImageError("No ingredients detected. Try a clearer image or add manually.");
-          } else {
+          const data = await response.json();
+          console.log('API response data:', data);
+
+          if (!response.ok) {
+            throw new Error(data.error || 'Failed to analyze image');
+          }
+
+          if (data.success && data.ingredients && data.ingredients.length > 0) {
             const newIngredients = [...selectedIngredients];
-            detectedIngredients.slice(0, 10).forEach(ing => {
+            data.ingredients.slice(0, 10).forEach(ing => {
               if (!newIngredients.includes(ing)) {
                 newIngredients.push(ing);
               }
             });
             setSelectedIngredients(newIngredients);
+            setImageError(""); // Clear any previous errors
+          } else {
+            setImageError("No ingredients detected. Try a clearer image or add manually.");
           }
           
           setIsProcessingImage(false);
         } catch (error) {
-          console.error("AWS Rekognition error:", error);
-          setImageError("Failed to analyze image. Check AWS credentials or try again.");
+          console.error("API error:", error);
+          setImageError(error.message || "Failed to analyze image. Please try again.");
           setIsProcessingImage(false);
         }
       };
@@ -150,6 +134,9 @@ export default function SmartRecipeGenerator() {
         setImageError("Failed to read image file.");
         setIsProcessingImage(false);
       };
+
+      // Read file as Data URL (base64)
+      reader.readAsDataURL(file);
     } catch (error) {
       console.error("Upload error:", error);
       setImageError("Failed to process image.");
@@ -179,58 +166,55 @@ export default function SmartRecipeGenerator() {
   };
 
   // Filter recipes based on all criteria
-const filterRecipes = () => {
-  try {
-    let filtered = RECIPES;
+  const filterRecipes = () => {
+    try {
+      let filtered = RECIPES;
 
-    if (selectedIngredients.length > 0) {
-      filtered = filtered
-        .map(recipe => {
-          const matchCount = recipe.ingredients.filter(ing =>
-            selectedIngredients.some(selected =>
-              ing.toLowerCase().includes(selected.toLowerCase()) ||
-              selected.toLowerCase().includes(ing.toLowerCase())
-            )
-          ).length;
+      if (selectedIngredients.length > 0) {
+        filtered = filtered
+          .map(recipe => {
+            const matchCount = recipe.ingredients.filter(ing =>
+              selectedIngredients.some(selected =>
+                ing.toLowerCase().includes(selected.toLowerCase()) ||
+                selected.toLowerCase().includes(ing.toLowerCase())
+              )
+            ).length;
 
-          return {
-            ...recipe,
-            matchCount,
-            matchPercentage: (matchCount / recipe.ingredients.length) * 100
-          };
-        })
-        // ✅ keep only recipes with at least one matching ingredient
-        .filter(recipe => recipe.matchCount > 0)
-        // sort by best match first
-        .sort((a, b) => b.matchCount - a.matchCount);
+            return {
+              ...recipe,
+              matchCount,
+              matchPercentage: (matchCount / recipe.ingredients.length) * 100
+            };
+          })
+          .filter(recipe => recipe.matchCount > 0)
+          .sort((a, b) => b.matchCount - a.matchCount);
+      }
+
+      if (dietaryPrefs.length > 0) {
+        filtered = filtered.filter(recipe =>
+          dietaryPrefs.every(pref => recipe.dietary.includes(pref))
+        );
+      }
+
+      if (difficultyFilter) {
+        filtered = filtered.filter(recipe => recipe.difficulty === difficultyFilter);
+      }
+
+      if (maxCookTime < 120) {
+        filtered = filtered.filter(recipe => recipe.cookTime <= maxCookTime);
+      }
+
+      if (servingsFilter) {
+        const servings = parseInt(servingsFilter);
+        filtered = filtered.filter(recipe => recipe.servings === servings);
+      }
+
+      setFilteredRecipes(filtered);
+    } catch (error) {
+      console.error("Error filtering recipes:", error);
+      setFilteredRecipes(RECIPES);
     }
-
-    if (dietaryPrefs.length > 0) {
-      filtered = filtered.filter(recipe =>
-        dietaryPrefs.every(pref => recipe.dietary.includes(pref))
-      );
-    }
-
-    if (difficultyFilter) {
-      filtered = filtered.filter(recipe => recipe.difficulty === difficultyFilter);
-    }
-
-    if (maxCookTime < 120) {
-      filtered = filtered.filter(recipe => recipe.cookTime <= maxCookTime);
-    }
-
-    if (servingsFilter) {
-      const servings = parseInt(servingsFilter);
-      filtered = filtered.filter(recipe => recipe.servings === servings);
-    }
-
-    setFilteredRecipes(filtered);
-  } catch (error) {
-    console.error("Error filtering recipes:", error);
-    setFilteredRecipes(RECIPES);
-  }
-};
-
+  };
 
   // Toggle favorite
   const toggleFavorite = (recipeId) => {
@@ -242,16 +226,15 @@ const filterRecipes = () => {
     setRatings(prev => ({...prev, [recipeId]: stars}));
   };
 
- const getMissingIngredients = (recipe) => {
-  if (selectedIngredients.length === 0) return []; 
-  return recipe.ingredients.filter(ing => 
-    !selectedIngredients.some(selected => 
-      ing.toLowerCase().includes(selected.toLowerCase()) ||
-      selected.toLowerCase().includes(ing.toLowerCase())
-    )
-  );
-};
-
+  const getMissingIngredients = (recipe) => {
+    if (selectedIngredients.length === 0) return []; 
+    return recipe.ingredients.filter(ing => 
+      !selectedIngredients.some(selected => 
+        ing.toLowerCase().includes(selected.toLowerCase()) ||
+        selected.toLowerCase().includes(ing.toLowerCase())
+      )
+    );
+  };
 
   // Get substitutions for an ingredient
   const getSubstitutionsForIngredient = (ingredient) => {

@@ -1,4 +1,3 @@
-// Clarifai Image Recognition
 export const detectIngredientsFromImage = async (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -14,7 +13,7 @@ export const detectIngredientsFromImage = async (file) => {
             method: "POST",
             headers: {
               "Authorization": `Key ${import.meta.env.VITE_CLARIFAI_PAT}`,
-              "Content-Type": "application/json",
+              "Content-Type": "appliction/json",
             },
             body: JSON.stringify({
               inputs: [{ data: { image: { base64: base64Image } } }]

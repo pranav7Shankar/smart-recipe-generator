@@ -1,0 +1,13 @@
+{
+  "functions": {
+    "api/**/*.js": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
+  },
+  "env": {
+    "VITE_AWS_REGION": "@vite_aws_region",
+    "VITE_AWS_ACCESS_KEY_ID": "@vite_aws_access_key_id",
+    "VITE_AWS_SECRET_ACCESS_KEY": "@vite_aws_secret_access_key"
+  }
+}
