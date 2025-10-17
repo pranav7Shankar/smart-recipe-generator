@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Loader } from 'lucide-react';
-// ❌ REMOVED: AWS SDK imports - now handled by API
 
-// Import data
+
 import { RECIPES, COMMON_INGREDIENTS, DIETARY_OPTIONS } from './data/recipes';
 import { SUBSTITUTIONS } from './data/substitutions';
 
@@ -21,7 +20,6 @@ import Footer from './components/Footer';
 
 
 export default function SmartRecipeGenerator() {
-  // ❌ REMOVED: AWS client initialization - moved to API
 
   // State management
   const [selectedIngredients, setSelectedIngredients] = useState([]);
